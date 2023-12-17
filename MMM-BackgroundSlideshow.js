@@ -33,6 +33,8 @@ Module.register('MMM-BackgroundSlideshow', {
     validImageFileExtensions: 'bmp,jpg,jpeg,gif,png',
     // show a panel containing information about the image currently displayed.
     showImageInfo: false,
+    // EXIF情報のタイトルヘッダを表示するかどうか
+    showImageInfoHeader: true,
     // a comma separated list of values to display: name, date, geo (TODO)
     imageInfo: 'name, date, imagecount',
     // location of the info div
@@ -44,7 +46,7 @@ Module.register('MMM-BackgroundSlideshow', {
     // the sizing of the background image
     // cover: Resize the background image to cover the entire container, even if it has to stretch the image or cut a little bit off one of the edges
     // contain: Resize the background image to make sure the image is fully visible
-    backgroundSize: 'cover', // cover or contain
+    backgroundSize: 'full', // cover or contain or full
     // if backgroundSize contain, determine where to zoom the picture. Towards top, center or bottom
     backgroundPosition: 'center', // Most useful options: "top" or "center" or "bottom"
     // transition from one image to the other (may be a bit choppy on slower devices, or if the images are too big)
@@ -388,7 +390,12 @@ Module.register('MMM-BackgroundSlideshow', {
 
   createDiv: function () {
     var div = document.createElement('div');
-    div.style.backgroundSize = this.config.backgroundSize;
+    if (this.config.backgroundSize == 'full') {
+      div.style.backgroundSize = 'contain';
+    }
+    else {
+      div.style.backgroundSize = this.config.backgroundSize;
+    }
     div.style.backgroundPosition = this.config.backgroundPosition;
     div.className = 'image';
     return div;
@@ -515,7 +522,8 @@ Module.register('MMM-BackgroundSlideshow', {
           if (dateTime !== null) {
             try {
               dateTime = moment(dateTime, 'YYYY:MM:DD HH:mm:ss');
-              dateTime = dateTime.format('dddd MMMM D, YYYY HH:mm');
+              //dateTime = dateTime.format('dddd MMMM D, YYYY HH:mm');
+              dateTime = dateTime.format('YYYY / MM / DD (ddd) HH:mm');
             } catch (e) {
               console.log(
                 'Failed to parse dateTime: ' +
@@ -540,6 +548,13 @@ Module.register('MMM-BackgroundSlideshow', {
           imageDiv.style.transform = this.getImageTransformCss(exifOrientation);
         }
       });
+      
+      if (this.config.backgroundSize == 'full') {
+        let imageDivClone = imageDiv.cloneNode();
+        imageDivClone.style.backgroundSize = 'cover';
+        imageDivClone.style.opacity = '0.5';
+        transitionDiv.appendChild(imageDivClone);
+      }
       transitionDiv.appendChild(imageDiv);
       this.imagesDiv.appendChild(transitionDiv);
     };
@@ -652,7 +667,9 @@ Module.register('MMM-BackgroundSlideshow', {
       }
     });
 
-    let innerHTML = '<header class="infoDivHeader">' + this.translate('PICTURE_INFO') + '</header>';
+    let innerHTML = this.config.showImageInfoHeader
+    	? '<header class="infoDivHeader">' + this.translate('PICTURE_INFO') + '</header>'
+    	: '';
     imageProps.forEach((val, idx) => {
       innerHTML += val + '<br/>';
     });
