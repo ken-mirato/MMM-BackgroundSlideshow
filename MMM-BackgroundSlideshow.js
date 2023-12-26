@@ -35,6 +35,11 @@ Module.register('MMM-BackgroundSlideshow', {
     showImageInfo: false,
     // EXIF情報のタイトルヘッダを表示するかどうか
     showImageInfoHeader: true,
+    // EXIF情報の住所を表示するかどうか（GoogleMapAPI利用。APIキーを指定する）
+    googleMapApiKey: '',
+    // EXIF情報の地名を更に特定の表示名に置き換えるか（{key: *** displayName: ***} 形式で記載。
+    // keyに指定した文字が含まれる場合、displayNameを住所の代わりに表示する）
+    imagePlaceDictionary: [],
     // a comma separated list of values to display: name, date, geo (TODO)
     imageInfo: 'name, date, imagecount',
     // location of the info div
@@ -117,6 +122,16 @@ Module.register('MMM-BackgroundSlideshow', {
     // set no error
     // this.errorMessage = null;
 
+    // APIキー登録があった場合はスクリプト読み込み
+    if (this.config.googleMapApiKey.length != 0) {
+      var script = document.createElement("script");
+      script.src = "https://maps.googleapis.com/maps/api/js?language=ja&key=" + this.config.googleMapApiKey + "&callback=initMap";
+      window.initMap = function() {
+        console.log("Google map api script load success");
+      };
+      document.querySelector("body").appendChild(script);
+    }
+      
     //validate imageinfo property.  This will make sure we have at least 1 valid value
     const imageInfoRegex = /\bname\b|\bdate\b/gi;
     if (
@@ -540,7 +555,32 @@ Module.register('MMM-BackgroundSlideshow', {
           // if (lat && lon) {
           //   // Get small map of location
           // }
-          this.updateImageInfo(imageinfo, dateTime);
+          //this.updateImageInfo(imageinfo, dateTime);
+
+          // GoogleMapAPIキーが指定されている場合、緯度経度から住所を取得する
+          let apidone = false;
+          if ((this.config.googleMapApiKey.length != 0)
+           && (this.config.imageInfo.indexOf("place") != -1)) {
+            // 緯度経度取得
+            let latInfo = EXIF.getTag(image, "GPSLatitude");
+            let lonInfo = EXIF.getTag(image, "GPSLongitude");
+            if (latInfo && lonInfo) {
+              // 数値変換
+              let lat = latInfo[0]/1 + latInfo[1]/60 + latInfo[2]/3600;
+              let lon = lonInfo[0]/1 + lonInfo[1]/60 + lonInfo[2]/3600;
+              // GoogleMapAPI実行
+              apidone = true;
+              this.getLocation(lat, lon).then((address) => {
+                // 住所取得した場合は、カスタム表示名に変換してから、表示更新
+                let place = this.setCustomLocation(address);
+                this.updateImageInfo(imageinfo, dateTime, place);
+              });
+            }
+          }
+          // 住所取得していない場合はそのまま表示更新
+          if (apidone == false) {
+            this.updateImageInfo(imageinfo, dateTime, "");
+          }
         }
 
         if (!this.browserSupportsExifOrientationNatively) {
@@ -563,6 +603,99 @@ Module.register('MMM-BackgroundSlideshow', {
     this.sendSocketNotification('BACKGROUNDSLIDESHOW_IMAGE_UPDATED', {
       url: imageinfo.path
     });
+  },
+
+  async getLocation(lat, lon) {
+    return new Promise(resolve => {
+      //Google Maps APIのジオコーダを使います。
+      let latLngInput = new google.maps.LatLng(lat, lon);
+      let geocoder = new google.maps.Geocoder();
+            
+      //ジオコーダのgeocodeを実行します。
+      //第１引数のリクエストパラメータにlatLngプロパティを設定します。
+      //第２引数はコールバック関数です。取得結果を処理します。
+      geocoder.geocode(
+          { latLng: latLngInput },
+          (results, status) => {
+              let address = "";
+              // 取得が成功した場合,住所が正確に格納されているデータを採用する
+              if (status == google.maps.GeocoderStatus.OK) {
+                address = this.getStreetAddress(results);
+              } else if (status == google.maps.GeocoderStatus.ZERO_RESULTS) {
+                  console.log("住所が見つかりませんでした。");
+              } else if (status == google.maps.GeocoderStatus.ERROR) {
+                  console.log("サーバ接続に失敗しました。");
+              } else if (status == google.maps.GeocoderStatus.INVALID_REQUEST) {
+                  console.log("リクエストが無効でした。");
+              } else if (status == google.maps.GeocoderStatus.OVER_QUERY_LIMIT) {
+                  console.log("リクエストの制限回数を超えました。");
+              } else if (status == google.maps.GeocoderStatus.REQUEST_DENIED) {
+                  console.log("サービスが使えない状態でした。");
+              } else if (status == google.maps.GeocoderStatus.UNKNOWN_ERROR) {
+                  console.log("原因不明のエラーが発生しました。");
+              }
+              resolve(address);
+          }
+      );
+    });
+  },
+  
+  // GoogleMapAPIの結果から、郵便番号が含まれているある程度詳細な住所を選定する
+  getStreetAddress: function (results) {
+    let result = "";
+    let street_address = "";
+    let premise = "";
+    let first = "";
+    for (let i = 0; i < results.length; i++) {
+      const result = results[i];
+      const type = result.types[0];
+      if (type == "plus_code") {
+        continue;
+      }
+      if (first == "") {
+        first = result.formatted_address
+      }
+      if (type == "street_address") {
+        street_address = result.formatted_address;
+      }
+      else if (type == "premise") {
+        premise = result.formatted_address;
+      }
+    }
+
+    if (street_address != "") {
+      result = street_address;
+    }
+    else if (premise != "") {
+      result = premise;
+    }
+    else {
+      result = first;
+    }
+    return result;
+  },
+
+  setCustomLocation: function (address) {
+      console.log("GoogleAPI Result [" + address + "]");
+      let place = "";
+      for (let i = 0; i < this.config.imagePlaceDictionary.length; i++) {
+          const dic = this.config.imagePlaceDictionary[i];
+          if (address.indexOf(dic.key) != -1) {
+              place = dic.displayName;
+              break;
+          }
+      }
+      if (place.length == 0) {
+          place = address;
+          const fullnums = '０１２３４５６７８９';
+          place = place.replace("日本", "");				// 国削除
+          place = place.replace(/([、 ])/, "");				// 国削除
+          //place = place.replace(/(〒\d{3}-\d{4})/, "");	// 郵便番号削除
+          place = place.replace("−","-")					// 番地を半角変換
+          place = place.replace(/[０-９]/g, m=>'０１２３４５６７８９'.indexOf(m));
+      }
+      console.log("place is [" + place + "]");
+      return place;
   },
 
   updateImage: function (backToPreviousImage = false, imageToDisplay = null) {
@@ -622,13 +755,25 @@ Module.register('MMM-BackgroundSlideshow', {
     }
   },
 
-  updateImageInfo: function (imageinfo, imageDate) {
+  updateImageInfo: function (imageinfo, imageDate, place) {
     let imageProps = [];
     this.config.imageInfo.forEach((prop, idx) => {
       switch (prop) {
         case 'date':
           if (imageDate && imageDate != 'Invalid date') {
             imageProps.push(imageDate);
+          }
+          break;
+
+        case 'place':
+          if (place && place.length != 0) {
+            // 郵便番号が含まれる場合は長い住所なので、CSS調整用にdivで囲っておく
+            if (place.indexOf("〒") != -1) {
+              imageProps.push('<div class="full-address">' + place + '</div>');
+            }
+            else {
+              imageProps.push(place);
+            }
           }
           break;
 
@@ -671,7 +816,12 @@ Module.register('MMM-BackgroundSlideshow', {
     	? '<header class="infoDivHeader">' + this.translate('PICTURE_INFO') + '</header>'
     	: '';
     imageProps.forEach((val, idx) => {
-      innerHTML += val + '<br/>';
+      if (val.indexOf("<div ") != -1) {
+        innerHTML += val;
+      }
+      else {
+        innerHTML += val + '<br/>';
+      }
     });
 
     this.imageInfoDiv.innerHTML = innerHTML;
