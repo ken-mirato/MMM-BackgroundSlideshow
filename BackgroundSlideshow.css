@@ -136,6 +136,13 @@
   position: absolute;
 }
 
+.MMM-BackgroundSlideshow .info .full-address {
+  text-overflow: ellipsis;
+  text-wrap: nowrap;
+  overflow: hidden;
+  font-size: 70%;
+}
+
 @keyframes move {
   0% {
     width: 0%;
