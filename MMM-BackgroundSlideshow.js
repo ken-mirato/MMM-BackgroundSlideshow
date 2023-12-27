@@ -37,9 +37,11 @@ Module.register('MMM-BackgroundSlideshow', {
     showImageInfoHeader: true,
     // EXIF情報の住所を表示するかどうか（GoogleMapAPI利用。APIキーを指定する）
     googleMapApiKey: '',
-    // EXIF情報の地名を更に特定の表示名に置き換えるか（{key: *** displayName: ***} 形式で記載。
+    // EXIF情報の地名を更に特定の表示名に置き換えるか（{key: ***, displayName: ***, displayNameSub: ***} 形式で記載。
     // keyに指定した文字が含まれる場合、displayNameを住所の代わりに表示する）
     imagePlaceDictionary: [],
+    // 当時何才か表示する情報（{ name: ***, year: yyyy, month: mm, day: dd }で記載）
+    imageInfoBirthday: [],
     // a comma separated list of values to display: name, date, geo (TODO)
     imageInfo: 'name, date, imagecount',
     // location of the info div
@@ -537,8 +539,6 @@ Module.register('MMM-BackgroundSlideshow', {
           if (dateTime !== null) {
             try {
               dateTime = moment(dateTime, 'YYYY:MM:DD HH:mm:ss');
-              //dateTime = dateTime.format('dddd MMMM D, YYYY HH:mm');
-              dateTime = dateTime.format('YYYY / MM / DD (ddd) HH:mm');
             } catch (e) {
               console.log(
                 'Failed to parse dateTime: ' +
@@ -679,11 +679,15 @@ Module.register('MMM-BackgroundSlideshow', {
       console.log("GoogleAPI Result [" + address + "]");
       let place = "";
       for (let i = 0; i < this.config.imagePlaceDictionary.length; i++) {
-          const dic = this.config.imagePlaceDictionary[i];
-          if (address.indexOf(dic.key) != -1) {
-              place = dic.displayName;
-              break;
+        const dic = this.config.imagePlaceDictionary[i];
+        if (address.indexOf(dic.key) != -1) {
+          place = dic.displayName;
+          if (dic.displayNameSub != "") {
+            place += '\n' + dic.displayNameSub;
+            place = '<div class="wrap">' + place + '</div>'
           }
+          break;
+        }
       }
       if (place.length == 0) {
           place = address;
@@ -696,6 +700,29 @@ Module.register('MMM-BackgroundSlideshow', {
       }
       console.log("place is [" + place + "]");
       return place;
+  },
+
+  getAfterBirth: function (imageDate, bYear, bMonth, bDay, isShort = false) {
+    // 誕生日日時のDateを取得
+    const dateBirth = new Date(bYear, bMonth-1, bDay);
+
+    // 現在日時までのミリ秒と日数を計算
+    const timeTillNow = imageDate.getTime() - dateBirth.getTime(); 
+    const daysTillNow = timeTillNow / (1000 * 3600 * 24); 
+
+    // 年齢の年部分・月部分・日部分をそれぞれ計算
+    const DAYS_PER_MONTH = 365 / 12;
+    const ageY = Math.floor(daysTillNow / 365);
+    const ageM = Math.floor((daysTillNow - 365*ageY) / DAYS_PER_MONTH);
+    //const ageD = Math.floor((daysTillNow - 365*ageY - DAYS_PER_MONTH*ageM));
+    
+    if (isShort) {
+      return ageY + "才" + ((ageM >= 6) ? "半" : "");
+    }
+    else {
+      return ageY + "才" + (ageM < 10 ? '<span class="trans">0</span>' : '') + ageM + "ヶ月";
+    }
+
   },
 
   updateImage: function (backToPreviousImage = false, imageToDisplay = null) {
@@ -761,7 +788,8 @@ Module.register('MMM-BackgroundSlideshow', {
       switch (prop) {
         case 'date':
           if (imageDate && imageDate != 'Invalid date') {
-            imageProps.push(imageDate);
+            const displayDateTime = imageDate.format('YYYY / MM / DD (ddd) HH:mm');
+            imageProps.push(displayDateTime);
           }
           break;
 
@@ -773,6 +801,25 @@ Module.register('MMM-BackgroundSlideshow', {
             }
             else {
               imageProps.push(place);
+            }
+          }
+          break;
+
+        case 'birth-full':
+        case 'birth-short':
+        case 'birth-full-single':
+        case 'birth-short-single':
+          if (this.config.imageInfoBirthday.length != 0) {
+            const isShort = (prop.indexOf("short") != -1);
+            const isSingle = (prop.indexOf("single") != -1);
+            let doms = [];
+            for (let i = 0; i < this.config.imageInfoBirthday.length; i++) {
+              const dic = this.config.imageInfoBirthday[i];
+              const displayBirth = this.getAfterBirth(imageDate.toDate(), dic.year, dic.month, dic.day, isShort);
+              doms.push(dic.name + '<span class="trans">a</span>' + displayBirth);
+            }
+            if (doms.length != 0) {
+              imageProps.push('<div class="birthday wrap">' +doms.join(isSingle ? ' / ' : '\n') + '</div>');
             }
           }
           break;
