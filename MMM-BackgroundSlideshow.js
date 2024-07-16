@@ -36,6 +36,8 @@ Module.register('MMM-BackgroundSlideshow', {
     showImageInfoHeader: true,
     // EXIF情報の住所を表示するかどうか（GoogleMapAPI利用。APIキーを指定する）
     googleMapApiKey: '',
+    // EXIF情報の住所を表示するかどうか（GoogleMapAPIを利用するGASプロジェクトの公開URLを記載する）
+    googleMapGASUrl: '',
     // EXIF情報の地名を更に特定の表示名に置き換えるか（{key: [***,***], displayName: ***, displayNameSub: ***} 形式で記載。
     // keyに指定した文字が含まれる場合、displayNameを住所の代わりに表示する）
     imagePlaceDictionary: [],
@@ -517,6 +519,10 @@ Module.register('MMM-BackgroundSlideshow', {
           if (dateTime !== null) {
             try {
               dateTime = moment(dateTime, 'YYYY:MM:DD HH:mm:ss');
+              // 不正な日時の場合は、日時処理しない
+              if (Number.isNaN(dateTime.toDate().getTime())) {
+                dateTime = '';
+              }
               //dateTime = dateTime.format('dddd MMMM D, YYYY HH:mm');
             } catch (e) {
               Log.log(`Failed to parse dateTime: ${
@@ -536,8 +542,7 @@ Module.register('MMM-BackgroundSlideshow', {
 
           // GoogleMapAPIキーが指定されている場合、緯度経度から住所を取得する
           let apidone = false;
-          if ((this.config.googleMapApiKey.length != 0)
-           && (this.config.imageInfo.indexOf("place") != -1)) {
+          if (this.config.imageInfo.indexOf("place") != -1) {
             // 緯度経度取得
             let latInfo = EXIF.getTag(image, "GPSLatitude");
             let lonInfo = EXIF.getTag(image, "GPSLongitude");
@@ -545,13 +550,22 @@ Module.register('MMM-BackgroundSlideshow', {
               // 数値変換
               let lat = latInfo[0]/1 + latInfo[1]/60 + latInfo[2]/3600;
               let lon = lonInfo[0]/1 + lonInfo[1]/60 + lonInfo[2]/3600;
-              // GoogleMapAPI実行
               apidone = true;
-              this.getLocation(lat, lon).then((address) => {
-                // 住所取得した場合は、カスタム表示名に変換してから、表示更新
-                let place = this.setCustomLocation(address);
-                this.updateImageInfo(imageinfo, dateTime, place);
-              });
+              // GoogleMapAPI実行
+              if (this.config.googleMapApiKey.length != 0) {
+                this.getLocation(lat, lon).then((address) => {
+                  // 住所取得した場合は、カスタム表示名に変換してから、表示更新
+                  let place = this.setCustomLocation(address);
+                  this.updateImageInfo(imageinfo, dateTime, place);
+                });
+              }
+              // GoogleMapAPI(GAS)実行
+              else if (this.config.googleMapGASUrl.length != 0) {
+                this.getLocationGAS(lat, lon).then((address) => {
+                  // 住所取得した場合は、カスタム表示名に変換してから、表示更新
+                  this.updateImageInfo(imageinfo, dateTime, address);
+                });
+              }
             }
           }
           // 住所取得していない場合はそのまま表示更新
@@ -579,6 +593,28 @@ Module.register('MMM-BackgroundSlideshow', {
     image.src = imageinfo.data;
     this.sendSocketNotification('BACKGROUNDSLIDESHOW_IMAGE_UPDATED', {
       url: imageinfo.path
+    });
+  },
+
+  async getLocationGAS(lat, lon) {
+    return new Promise(resolve => {
+      const xhr = new XMLHttpRequest();
+      xhr.open("GET", this.config.googleMapGASUrl + "?lat=" + lat + "&long=" + lon);
+      xhr.send();
+      //xhr.responseType = "json";
+      xhr.onload = () => {
+        if (xhr.readyState == 4 && xhr.status == 200) {
+          const address = xhr.response;
+          if (address.indexOf('\n') != -1) {
+            const place = '<div class="wrap">' + address + '</div>'
+            resolve(place);
+          } else {
+            resolve(address);
+          }
+        } else {
+          resolve("error:" + xhr.status);
+        }
+      };
     });
   },
 
@@ -792,13 +828,14 @@ Module.register('MMM-BackgroundSlideshow', {
         case 'birth-short':
         case 'birth-full-single':
         case 'birth-short-single':
-          if (this.config.imageInfoBirthday.length != 0) {
+          if ((this.config.imageInfoBirthday.length != 0) && (imageDate)) {
             const isShort = (prop.indexOf("short") != -1);
             const isSingle = (prop.indexOf("single") != -1);
             let doms = [];
+            const date = imageDate.toDate();
             for (let i = 0; i < this.config.imageInfoBirthday.length; i++) {
               const dic = this.config.imageInfoBirthday[i];
-              const displayBirth = this.getAfterBirth(imageDate.toDate(), dic.year, dic.month, dic.day, isShort);
+              const displayBirth = this.getAfterBirth(date, dic.year, dic.month, dic.day, isShort);
               doms.push(dic.name + '<span class="trans">a</span>' + displayBirth);
             }
             if (doms.length != 0) {
