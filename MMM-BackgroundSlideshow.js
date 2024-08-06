@@ -250,6 +250,19 @@ Module.register('MMM-BackgroundSlideshow', {
     } else if (notification === 'BACKGROUNDSLIDESHOW_FILELIST') {
       // bubble up filelist notifications
       this.sendSocketNotification('BACKGROUNDSLIDESHOW_FILELIST', payload);
+      // GIFファイルのパスを探す
+      if (payload && payload.imageList) {
+        const imaegInfo = payload.imageList.filter(info => info.path && info.path.indexOf(".gif") !== -1);
+        if (imaegInfo && imaegInfo.length !== 0) {
+          const paths = imaegInfo[0].path.split("/");
+          if (paths && paths.length !== 0) {
+            // GIFファイル名＝フォルダ説明として変数保存
+            const targetPath = paths[paths.length - 1];
+            const folderName = targetPath.replace(".gif", "");
+            this.folderName = folderName;
+          }
+        }
+      }
     } else if (notification === 'BACKGROUNDSLIDESHOW_UPDATE_IMAGE_LIST') {
       this.imageIndex = -1;
       this.updateImageList();
@@ -725,6 +738,9 @@ Module.register('MMM-BackgroundSlideshow', {
     // 現在日時までのミリ秒と日数を計算
     const timeTillNow = imageDate.getTime() - dateBirth.getTime(); 
     const daysTillNow = timeTillNow / (1000 * 3600 * 24); 
+    if (daysTillNow < 0) {
+      return "";
+    }
 
     // 年齢の年部分・月部分・日部分をそれぞれ計算
     const DAYS_PER_MONTH = 365 / 12;
@@ -836,11 +852,19 @@ Module.register('MMM-BackgroundSlideshow', {
             for (let i = 0; i < this.config.imageInfoBirthday.length; i++) {
               const dic = this.config.imageInfoBirthday[i];
               const displayBirth = this.getAfterBirth(date, dic.year, dic.month, dic.day, isShort);
-              doms.push(dic.name + '<span class="trans">a</span>' + displayBirth);
+              if (displayBirth.length !== 0) {
+                doms.push(dic.name + '<span class="trans">a</span>' + displayBirth);
+              }
             }
             if (doms.length != 0) {
               imageProps.push('<div class="birthday wrap">' +doms.join(isSingle ? ' / ' : '\n') + '</div>');
             }
+          }
+          break;
+
+        case 'foldername':
+          if (this.folderName && this.folderName.length !== 0) {
+            imageProps.push("【" + this.folderName + "】");
           }
           break;
 
